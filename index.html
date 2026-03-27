@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zombie Siege 2D</title>
+  <meta name="description" content="Zombie Siege 2D là game bắn zombie top-down với minigun, laser, lựu đạn, tên lửa Tomahawk, zombie vũ trang và đồng đội hỗ trợ.">
+  <meta name="robots" content="index, follow">
+  <meta property="og:title" content="Zombie Siege 2D">
+  <meta property="og:description" content="Game bắn zombie 2D top-down với nhiều loại vũ khí, zombie cầm súng và quân đồng minh hỗ trợ.">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="vi_VN">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="hud-shell">
+    <div class="title-block">
+      <h1>Zombie Siege 2D</h1>
+      <p>WASD di chuyển, chuột để ngắm, giữ click trái để xả đạn liên tục, `1-4` để đổi vũ khí.</p>
+    </div>
+    <div class="stats">
+      <div class="stat">
+        <span class="label">Người chơi</span>
+        <span id="playerHealth">200,000 HP</span>
+      </div>
+      <div class="stat">
+        <span class="label">Zombie còn sống</span>
+        <span id="zombieCount">0</span>
+      </div>
+      <div class="stat">
+        <span class="label">Vũ khí</span>
+        <span id="weaponName">MINIGUN</span>
+      </div>
+      <div class="stat">
+        <span class="label">Hạ gục</span>
+        <span id="kills">0</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="weapon-bar">
+    <button class="weapon active" data-weapon="minigun">1 Minigun</button>
+    <button class="weapon" data-weapon="laser">2 Laser</button>
+    <button class="weapon" data-weapon="grenade">3 Lựu đạn</button>
+    <button class="weapon" data-weapon="tomahawk">4 Tên lửa Tomahawk</button>
+  </div>
+
+  <canvas id="game" width="1280" height="720"></canvas>
+
+  <script src="game.js"></script>
+</body>
+</html>
