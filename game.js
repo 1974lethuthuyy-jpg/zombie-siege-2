@@ -27,11 +27,13 @@ const mouse = {
   down: false,
 };
 const keys = new Set();
-const PLAYER_HEALTH = 200_000;
-const ZOMBIE_HEALTH = 1_000;
-const PLAYER_REGEN_PER_SECOND = 20_000;
-const ALLY_HEALTH = 1_000;
-const ALLY_ARMOR = 1_000;
+const PLAYER_HEALTH = 10_000;
+const PLAYER_ARMOR = 5_000;
+const ZOMBIE_HEALTH = 2_000;
+const PLAYER_REGEN_PER_SECOND = PLAYER_HEALTH * 0.1 / 3;
+const ALLY_HEALTH = 3_000;
+const ALLY_ARMOR = 2_000;
+const STANDARD_FIRE_RATE = 60 / 2000;
 
 const player = {
   x: world.width / 2,
@@ -40,14 +42,17 @@ const player = {
   speed: 300,
   angle: 0,
   hp: PLAYER_HEALTH,
+  armor: PLAYER_ARMOR,
   weapon: "minigun",
+  cooldown: 0,
 };
 
 const weapons = {
-  minigun: { label: "MINIGUN", damage: 24, speed: 920, color: "#ffd166" },
-  laser: { label: "LASER", damage: 72, speed: 1500, color: "#6ef2ff" },
-  grenade: { label: "LỰU ĐẠN", damage: 130, speed: 420, color: "#ff9f43", splash: 120 },
-  tomahawk: { label: "TÊN LỬA TOMAHAWK", damage: 240, speed: 840, color: "#d7e2ea", splash: 170 },
+  minigun: { label: "MINIGUN", damage: 24, speed: 920, color: "#ffd166", fireRate: STANDARD_FIRE_RATE },
+  laser: { label: "LASER", damage: 92, speed: 2600, color: "#6ef2ff", fireRate: STANDARD_FIRE_RATE, life: 1.25 },
+  grenade: { label: "LỰU ĐẠN", damage: 130, speed: 420, color: "#ff9f43", splash: 120, fireRate: STANDARD_FIRE_RATE },
+  tomahawk: { label: "TÊN LỬA TOMAHAWK", damage: 6000, speed: 980, color: "#d7e2ea", splash: 42000, fireRate: 0.4, life: 1.8 },
+  sniper: { label: "SNIPER", damage: 520, speed: 3600, color: "#f2f3f5", fireRate: STANDARD_FIRE_RATE, life: 1.7 },
 };
 
 const bullets = [];
@@ -57,8 +62,10 @@ const allies = [];
 const zombies = [];
 const particles = [];
 const flashes = [];
+const skyLasers = [];
 let spawnTimer = 2;
 let allySpawnTimer = 10;
+let sniperSpawnTimer = 5;
 let kills = 0;
 let lastTime = performance.now();
 
@@ -88,7 +95,20 @@ function spawnZombie(type) {
   let x = 0;
   let y = 0;
   const archetype =
-    type === "gunner"
+    type === "sniper"
+      ? {
+          type: "sniper",
+          weapon: "SÚNG TỈA",
+          color: "#5f6a74",
+          speed: rand(28, 42),
+          attackRange: rand(700, 980),
+          contactDamage: 8,
+          fireRate: rand(1.8, 2.6),
+          bulletSpeed: rand(920, 1120),
+          bulletDamage: rand(180, 260),
+          radius: rand(19, 24),
+        }
+      : type === "gunner"
       ? {
           type: "gunner",
           weapon: "SÚNG",
@@ -153,7 +173,7 @@ function spawnAlly() {
   const radius = rand(60, 240);
   const x = clamp(player.x + Math.cos(angle) * radius, 40, world.width - 40);
   const y = clamp(player.y + Math.sin(angle) * radius, 40, world.height - 40);
-  const loadoutKeys = Object.keys(weapons);
+  const loadoutKeys = Object.keys(weapons).filter((key) => key !== "tomahawk");
   const weaponKey = loadoutKeys[Math.floor(Math.random() * loadoutKeys.length)];
   const loadout = weapons[weaponKey];
 
@@ -175,7 +195,7 @@ function spawnAlly() {
       weaponKey === "laser" ? rand(0.14, 0.2) :
       weaponKey === "grenade" ? rand(0.55, 0.75) :
       rand(0.45, 0.65),
-    damage: loadout.damage * rand(0.9, 1.2),
+    damage: loadout.damage * rand(0.225, 0.3),
     bulletSpeed: loadout.speed * rand(0.9, 1.05),
     splash: loadout.splash ?? 0,
     angle: 0,
@@ -204,6 +224,27 @@ function createFlash(x, y, color, radius) {
   flashes.push({ x, y, color, radius, life: 0.12, maxLife: 0.12 });
 }
 
+function applyDamageToPlayer(amount) {
+  const armorAbsorb = Math.min(player.armor, amount * 0.75);
+  player.armor -= armorAbsorb;
+  player.hp = Math.max(0, player.hp - (amount - armorAbsorb));
+}
+
+function castSkyLaser() {
+  if (skyLasers.length > 0) {
+    skyLasers[0].x = mouse.x;
+    skyLasers[0].y = mouse.y;
+    return;
+  }
+  skyLasers.push({
+    x: mouse.x,
+    y: mouse.y,
+    radius: 3800,
+    damageTick: 1800,
+  });
+  createFlash(mouse.x, mouse.y, "rgba(110,242,255,0.35)", 80);
+}
+
 function updateCamera() {
   camera.x = clamp(player.x - canvas.width / 2, 0, world.width - canvas.width);
   camera.y = clamp(player.y - canvas.height / 2, 0, world.height - canvas.height);
@@ -213,6 +254,8 @@ function updateCamera() {
 
 function fireWeapon() {
   const weapon = weapons[player.weapon];
+  if (player.cooldown > 0) return;
+  player.cooldown = weapon.fireRate;
   const angle = player.angle;
   const muzzleX = player.x + Math.cos(angle) * 26;
   const muzzleY = player.y + Math.sin(angle) * 26;
@@ -240,7 +283,7 @@ function fireWeapon() {
       vy: Math.sin(angle) * weapon.speed,
       damage: weapon.damage,
       radius: 5,
-      life: 0.24,
+      life: weapon.life,
       color: weapon.color,
       type: "laser",
     });
@@ -265,11 +308,23 @@ function fireWeapon() {
       vy: Math.sin(angle) * weapon.speed,
       damage: weapon.damage,
       radius: 16,
-      life: 1.5,
+      life: weapon.life,
       color: weapon.color,
       type: "tomahawk",
       splash: weapon.splash,
       exhaustTimer: 0,
+    });
+  } else if (player.weapon === "sniper") {
+    bullets.push({
+      x: muzzleX,
+      y: muzzleY,
+      vx: Math.cos(angle) * weapon.speed,
+      vy: Math.sin(angle) * weapon.speed,
+      damage: weapon.damage,
+      radius: 4,
+      life: weapon.life,
+      color: weapon.color,
+      type: "sniper",
     });
   }
 }
@@ -353,6 +408,7 @@ function updatePlayer(dt) {
   player.y = clamp(player.y, 28, world.height - 28);
 
   player.hp = clamp(player.hp + PLAYER_REGEN_PER_SECOND * dt, 0, PLAYER_HEALTH);
+  player.cooldown = Math.max(0, player.cooldown - dt);
   updateCamera();
   player.angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
 
@@ -383,6 +439,11 @@ function updateBullets(dt) {
           explodeGrenade(bullet);
         } else if (bullet.type === "tomahawk") {
           explodeMissile(bullet);
+        } else if (bullet.type === "sniper") {
+          const dead = damageZombie(zombie, bullet.damage, bullet.x, bullet.y);
+          if (dead) zombies.splice(z, 1);
+          createFlash(bullet.x, bullet.y, "rgba(255,255,255,0.9)", 26);
+          emitParticles(bullet.x, bullet.y, "#f2f3f5", 8, 220);
         } else {
           const dead = damageZombie(zombie, bullet.damage, bullet.x, bullet.y);
           if (dead) zombies.splice(z, 1);
@@ -424,6 +485,20 @@ function updateBullets(dt) {
   }
 }
 
+function updateSkyLasers(dt) {
+  for (const strike of skyLasers) {
+    strike.x = mouse.x;
+    strike.y = mouse.y;
+    for (let z = zombies.length - 1; z >= 0; z -= 1) {
+      const zombie = zombies[z];
+      if (distance(zombie.x, zombie.y, strike.x, strike.y) <= strike.radius + zombie.radius) {
+        const dead = damageZombie(zombie, strike.damageTick * dt, strike.x, strike.y);
+        if (dead) zombies.splice(z, 1);
+      }
+    }
+  }
+}
+
 function updateEnemyBullets(dt) {
   for (let i = enemyBullets.length - 1; i >= 0; i -= 1) {
     const bullet = enemyBullets[i];
@@ -435,7 +510,7 @@ function updateEnemyBullets(dt) {
       bullet.targetType === "player" &&
       distance(bullet.x, bullet.y, player.x, player.y) <= bullet.radius + player.radius
     ) {
-      player.hp = Math.max(0, player.hp - bullet.damage);
+      applyDamageToPlayer(bullet.damage);
       createFlash(bullet.x, bullet.y, "rgba(255,100,77,0.85)", 16);
       enemyBullets.splice(i, 1);
       continue;
@@ -618,7 +693,7 @@ function updateZombies(dt) {
     zombie.attackCooldown = Math.max(0, zombie.attackCooldown - dt);
     zombie.hitFlash = Math.max(0, zombie.hitFlash - dt);
 
-    if (zombie.type === "gunner") {
+    if (zombie.type === "gunner" || zombie.type === "sniper") {
       if (distToTarget > zombie.attackRange * 0.9) {
         zombie.x += Math.cos(angle) * zombie.speed * dt;
         zombie.y += Math.sin(angle) * zombie.speed * dt;
@@ -638,12 +713,17 @@ function updateZombies(dt) {
           vx: Math.cos(bulletAngle) * zombie.bulletSpeed,
           vy: Math.sin(bulletAngle) * zombie.bulletSpeed,
           damage: zombie.bulletDamage,
-          radius: 4,
-          life: 2.3,
-          color: "#ff7f50",
+          radius: zombie.type === "sniper" ? 5 : 4,
+          life: zombie.type === "sniper" ? 3.2 : 2.3,
+          color: zombie.type === "sniper" ? "#ffb3a7" : "#ff7f50",
           targetType: target === player ? "player" : "ally",
         });
-        createFlash(muzzleX, muzzleY, "rgba(255,174,66,0.9)", 14);
+        createFlash(
+          muzzleX,
+          muzzleY,
+          zombie.type === "sniper" ? "rgba(255,220,190,0.95)" : "rgba(255,174,66,0.9)",
+          zombie.type === "sniper" ? 18 : 14
+        );
         zombie.attackCooldown = zombie.fireRate;
       }
     } else {
@@ -654,7 +734,7 @@ function updateZombies(dt) {
     const targetRadius = target.radius ?? 18;
     if (distToTarget <= zombie.radius + targetRadius + zombie.attackRange * 0.08 + 4) {
       if (target === player) {
-        player.hp = Math.max(0, player.hp - zombie.contactDamage * dt);
+        applyDamageToPlayer(zombie.contactDamage * dt);
       } else {
         target.hp = Math.max(0, target.hp - zombie.contactDamage * dt);
         target.hitFlash = 0.12;
@@ -691,15 +771,21 @@ function updateParticles(dt) {
 function updateSpawning(dt) {
   spawnTimer -= dt;
   if (spawnTimer <= 0) {
-    for (let i = 0; i < 17; i += 1) spawnZombie("gunner");
-    for (let i = 0; i < 33; i += 1) spawnZombie("sword");
+    for (let i = 0; i < 34; i += 1) spawnZombie("gunner");
+    for (let i = 0; i < 66; i += 1) spawnZombie("sword");
     spawnTimer = 2;
   }
 
   allySpawnTimer -= dt;
   if (allySpawnTimer <= 0) {
-    for (let i = 0; i < 40; i += 1) spawnAlly();
-    allySpawnTimer = 4;
+    for (let i = 0; i < 10; i += 1) spawnAlly();
+    allySpawnTimer = 5;
+  }
+
+  sniperSpawnTimer -= dt;
+  if (sniperSpawnTimer <= 0) {
+    for (let i = 0; i < 10; i += 1) spawnZombie("sniper");
+    sniperSpawnTimer = 5;
   }
 }
 
@@ -860,6 +946,11 @@ function drawZombie(zombie) {
   if (zombie.type === "gunner") {
     ctx.fillStyle = "#353c42";
     ctx.fillRect(0, -3, zombie.radius + 12, 6);
+  } else if (zombie.type === "sniper") {
+    ctx.fillStyle = "#d0d6db";
+    ctx.fillRect(-2, -2, zombie.radius + 18, 4);
+    ctx.fillStyle = "#2f3438";
+    ctx.fillRect(zombie.radius + 8, -4, 10, 8);
   } else if (zombie.type === "knife") {
     ctx.fillStyle = "#d9d9d9";
     ctx.fillRect(2, -2, zombie.radius + 6, 4);
@@ -908,6 +999,10 @@ function drawBullet(bullet) {
     ctx.strokeStyle = "#4a2b10";
     ctx.lineWidth = 2;
     ctx.stroke();
+  } else if (bullet.type === "sniper") {
+    ctx.rotate(Math.atan2(bullet.vy, bullet.vx));
+    ctx.fillStyle = bullet.color;
+    ctx.fillRect(-10, -2, 20, 4);
   } else {
     ctx.fillStyle = bullet.color;
     ctx.beginPath();
@@ -934,6 +1029,20 @@ function drawEffects() {
     ctx.fillStyle = particle.color;
     ctx.beginPath();
     ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  for (const strike of skyLasers) {
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = "#6ef2ff";
+    ctx.beginPath();
+    ctx.arc(strike.x, strike.y, strike.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 0.45;
+    ctx.fillStyle = "#6ef2ff";
+    ctx.beginPath();
+    ctx.arc(strike.x, strike.y, strike.radius * 0.42, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
   }
@@ -972,7 +1081,7 @@ function drawCrosshair() {
 }
 
 function updateUi() {
-  ui.playerHealth.textContent = `${Math.round(player.hp).toLocaleString("en-US")} HP`;
+  ui.playerHealth.textContent = `${Math.round(player.hp).toLocaleString("en-US")} HP | ${Math.round(player.armor).toLocaleString("en-US")} AP`;
   ui.zombieCount.textContent = String(zombies.length);
   ui.kills.textContent = String(kills);
 }
@@ -985,6 +1094,7 @@ function tick(now) {
   updateBullets(dt);
   updateEnemyBullets(dt);
   updateAllyBullets(dt);
+  updateSkyLasers(dt);
   updateAllies(dt);
   updateZombies(dt);
   updateParticles(dt);
@@ -1016,10 +1126,14 @@ window.addEventListener("keydown", (event) => {
   if (key === "2") setWeapon("laser");
   if (key === "3") setWeapon("grenade");
   if (key === "4") setWeapon("tomahawk");
+  if (key === "5") setWeapon("sniper");
+  if (key === "l") castSkyLaser();
 });
 
 window.addEventListener("keyup", (event) => {
-  keys.delete(event.key.toLowerCase());
+  const key = event.key.toLowerCase();
+  keys.delete(key);
+  if (key === "l") skyLasers.length = 0;
 });
 
 canvas.addEventListener("mousemove", (event) => {
@@ -1042,8 +1156,9 @@ ui.buttons.forEach((button) => {
   button.addEventListener("click", () => setWeapon(button.dataset.weapon));
 });
 
-for (let i = 0; i < 17; i += 1) spawnZombie("gunner");
-for (let i = 0; i < 33; i += 1) spawnZombie("sword");
+for (let i = 0; i < 34; i += 1) spawnZombie("gunner");
+for (let i = 0; i < 66; i += 1) spawnZombie("sword");
+for (let i = 0; i < 10; i += 1) spawnZombie("sniper");
 setWeapon("minigun");
 updateCamera();
 updateUi();
